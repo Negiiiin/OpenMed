@@ -1,0 +1,31 @@
+# Step 3: Generate MCQs.
+# Input:  step 2b output (with_categories.jsonl — rows have a `categories` field).
+# Output: same rows with an added `generated_mcq` field (list of MCQ objects).
+input_path: "/data/outputs/step2b/with_categories.jsonl"
+output_path: "/data/outputs/step3/generated_mcq.jsonl"
+output_format: "jsonl"
+
+model: "gpt-4o-mini"
+api_key_env: "OPENAI_API_KEY"
+max_completion_tokens: 512
+# reasoning_effort: "medium"    # optional; set for o1/gpt-5 reasoning models
+
+# Stochastic scope / format decisions (deterministic given seed)
+full_figure_ratio: 0.30   # fraction of questions that use the full compound figure
+binary_ratio: 0.20        # fraction of eligible categories using binary (yes/no / true/false) format
+seed: 42
+
+# Image fields
+use_image: true
+image_path_field_subfigure: "subfig_path"
+image_path_field_full: "full_fig_path"
+image_path_prefix: null
+vision_detail: "high"     # auto | low | high
+
+# Uniform SLURM array split
+split_by_row_range: true
+
+# Optional: limit rows or range (when not using SLURM array)
+# max_rows: 500
+# from_row: null
+# to_row: null

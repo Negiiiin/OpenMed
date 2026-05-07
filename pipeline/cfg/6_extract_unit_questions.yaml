@@ -1,0 +1,52 @@
+# Step 6: Extract unit-question rubric from refined reasoning traces.
+# Each MCQ reasoning trace is decomposed into yes/no unit questions along
+# three axes: observation, knowledge, inference.
+
+input_path:  /data/outputs/step5/with_refined_reasoning.jsonl
+output_path: /data/outputs/step6/unit_questions.jsonl
+
+# Model for extraction
+# Options: gpt-4o-mini, gpt-4o, o1, o3, o4-mini, ...
+# Reasoning models (o1/o3/o4) tend to produce cleaner structured JSON.
+model: gpt-4o-mini
+
+# API configuration
+api_key_env: OPENAI_API_KEY
+# base_url: https://api.openai.com/v1   # override for custom endpoints
+
+# Generation parameters
+temperature: 0.0
+
+# Visible-token budget. For reasoning models this is max_completion_tokens
+# and must include hidden reasoning tokens -- keep it large.
+# The script retries at 2x and 4x on empty / truncated responses.
+max_completion_tokens: 16384
+
+# Only for reasoning models (o1/o3/o4-mini). Values: low / medium / high.
+reasoning_effort: medium
+
+# Per-request HTTP timeout (seconds)
+request_timeout: 180.0
+
+# Per-axis caps (also communicated to the LLM via the prompt)
+max_observation: 4
+max_knowledge:   3
+max_inference:   3
+min_total:       3
+max_total:       8
+
+# --- Input field names ---
+generated_mcq_field: generated_mcq
+reasoning_field:     reasoning       # field inside each MCQ object
+
+# --- Throughput ---
+delay: 0.0          # seconds between API calls (set > 0 to avoid rate limits)
+save_every_n: 10    # flush output every N written rows
+
+# --- Row-range slicing (optional) ---
+# from_row: 0
+# to_row: 1000
+# max_rows: null
+
+# --- Debug ---
+verbose_errors: true

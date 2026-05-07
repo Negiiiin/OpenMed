@@ -1,0 +1,99 @@
+input_path: "/data/pmc_dataset.jsonl"
+output_path: "/data/outputs/step1/filtered.jsonl"
+output_format: "jsonl"
+
+columns:
+  image_path: "subfig_path"
+  sub_caption: "sub_caption"
+  summary: "summary"
+  image_context: "image_context"
+
+context_source: "image_context"
+extract_all_image_context: true
+
+# keywords:
+#   - radiology
+#   - microscopy
+#   - histology
+#   - MRI
+#   - CT scan
+
+image_quality:
+  enabled: true
+  min_size: 224
+  max_aspect: 3.0
+  white_threshold: 150
+  max_white_ratio: 0.35
+  border_percent: 0.15
+  check_resolution_quality: true
+  min_sharpness: 60.0
+  min_effective_resolution: 224
+
+clip_filtering:
+  enabled: true
+  threshold: 0.6
+  device: "cuda"
+  batch_size: 32
+  alpha: 0.0
+
+context_quality:
+  enabled: true
+  model_path: "/model-weights/Qwen3-8B/"  # path to a local Qwen3 model
+  min_length: 50
+  max_new_tokens: 512
+  temperature: 0.1
+  top_p: 0.9
+  repetition_penalty: 1.0
+  batch_size: 32
+  device: "cuda"
+  use_vllm: true
+  system_prompt: |
+    You are a Senior Medical Content Analyst specializing in creating high-quality datasets for Visual Question Answering (VQA). 
+
+    Your task is to evaluate a set of textual data associated with a specific medical sub-figure. You must determine if the text contains sufficient "reasoning signals" to generate a complex Question-Answer pair.
+
+    To vote "YES", the text must support one of the following Reasoning Types:
+    1. Causal Reasoning: Explains the cause or effect of the visual feature (e.g., "The hyperintense region indicates tumor growth due to...").
+    2. Comparative Reasoning: Contrasts this sub-figure with another condition or baseline (e.g., "Unlike the control group, this figure demonstrates...").
+    3. Methodological/Functional Reasoning: Explains how a mechanism works or why a specific visual pattern emerges in the data.
+
+    You must vote "NO" if the text is:
+    - Purely Navigational: Only describes position (e.g., "Panel A shows the result", "Left: T1 weighted").
+    - Tautological: Merely labels the object without insight (e.g., "An MRI scan of the brain").
+    - Low Information: Lacks specific details, implications, or quantitative/qualitative analysis.
+
+    Your goal is high precision. Only keep rows where the text allows for a question that requires combining visual inspection with textual knowledge.
+  user_prompt_template: |
+    I am providing text data associated with a single sub-figure from a medical paper. 
+    
+    DATA INPUTS:
+    1. [Main Caption]: The global caption for the entire compound figure.
+    2. [Sub-Caption]: The specific caption for this sub-figure.
+    3. [Context]: In-text mentions and discussions referencing this specific figure.
+
+    ---
+    [Main Caption]:
+    """
+    {{main_caption}}
+    """
+
+    [Sub-Caption]:
+    """
+    {{sub_caption}}
+    """
+
+    [Context]:
+    """
+    {{image_context}}
+    """
+    ---
+
+    TASK:
+    Based strictly on the text above, is there enough informative context to create a multi-step reasoning question?
+    
+    The ideal question would require a user to:
+    1. Look at the image to identify a specific visual feature described in the text (e.g., a specific trend line, a stained cell type, an anatomical anomaly).
+    2. Use the text to explain the *significance*, *cause*, or *implication* of that feature.
+
+    Output strictly in this format:
+    YES/NO: [One sentence explanation of the specific reasoning chain found or why it is missing]

@@ -1,0 +1,42 @@
+# Step 5: Refine reasoning traces produced by OctoMed in step 4.
+# Uses an OpenAI vision-language model (GPT-4o by default, or a reasoning model).
+
+input_path:  /data/outputs/step4/with_reasoning.jsonl
+output_path: /data/outputs/step5/with_refined_reasoning.jsonl
+
+# Model for refinement
+# Options: gpt-4o, gpt-4o-mini, o1, o3, o4-mini, ...
+model: gpt-4o
+
+# API configuration
+api_key_env: OPENAI_API_KEY   # name of the environment variable holding the key
+# base_url: https://api.openai.com/v1   # override for non-OpenAI-compatible endpoints
+
+# Generation parameters (ignored for reasoning models; use reasoning_effort instead)
+temperature: 0.0
+max_tokens:  4096
+# reasoning_effort: medium    # low / medium / high — only for o1/o3/o4 class models
+
+# Throttle to avoid rate limits (seconds between API calls per MCQ)
+delay: 0.0
+
+# --- Input field names ---
+full_fig_path_field:    full_fig_path
+subfig_path_field:      subfig_path
+image_context_field:    image_context
+relevant_context_field: relevant_image_context
+generated_mcq_field:    generated_mcq
+
+# --- Row-range slicing (optional) ---
+# from_row: 0
+# to_row: 1000
+# max_rows: null
+
+# --- SLURM array sharding ---
+# Set to true (or env STEP5_SPLIT_BY_SLURM_ARRAY=1) to split rows across tasks.
+# Merge shards afterward: cat *_task*.jsonl > refined.jsonl
+split_by_slurm_array: true
+
+# --- Debug ---
+save_raw_response: false
+verbose_errors: true

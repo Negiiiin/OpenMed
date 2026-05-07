@@ -1,0 +1,66 @@
+# Step 7: Run a model under test on the step-6 rubric and judge each unit.
+#
+# Supported inference backends:
+#   vllm      -- local GPU model loaded via vLLM (default)
+#   openai    -- OpenAI-compatible chat-completions API (no GPU)
+#   anthropic -- Anthropic messages API (no GPU)
+
+input_path:          /data/outputs/step6/unit_questions.jsonl
+output_path:         /data/outputs/step7/runs.jsonl
+output_summary_path: /data/outputs/step7/summary.json
+
+# ---- Model under test ----
+# For vllm backend, set model_id to a HuggingFace model name or local path.
+# For openai / anthropic backends, set model_id to the API model name.
+inference_backend: vllm
+model_id: OctoMed/OctoMed-7B
+
+# vLLM settings (only used when backend=vllm)
+max_model_len:           16384
+gpu_memory_utilization:  0.90
+tensor_parallel_size:    1
+max_num_seqs:            32
+min_pixels:              262144
+max_pixels:              262144
+
+# OpenAI-compatible inference settings (backend=openai)
+inference_api_key_env: OPENAI_API_KEY
+# inference_base_url: https://api.openai.com/v1
+inference_request_timeout: 120.0
+
+# Anthropic inference settings (backend=anthropic)
+anthropic_api_key_env: ANTHROPIC_API_KEY
+
+# ---- Sampling ----
+temperature:         1.2
+top_p:               0.95
+top_k:               -1
+repetition_penalty:  1.05
+max_new_tokens:      4096
+stop_on_answer_tag:  true
+num_runs:            5
+run_seed_base:       42
+enable_thinking:     false
+# "auto" | "mcq" | "open_vqa"
+prompt_mode:         auto
+
+# ---- Judges (OpenAI-compatible; perception judge must be a VLM) ----
+perception_judge_model: gpt-4o
+knowledge_judge_model:  gpt-4o
+reasoning_judge_model:  gpt-4o
+judge_api_key_env: OPENAI_API_KEY
+# judge_base_url: https://generativelanguage.googleapis.com/v1beta/openai/  # for Gemini
+judge_reasoning_effort: low     # low / medium / high; for o1/o3 class judge models
+judge_max_tokens:  4096
+judge_temperature: 0.0
+save_evidence:     true          # set false to reduce output file size
+
+# ---- Row slicing (optional) ----
+# from_row: 0
+# to_row: 1000
+# max_rows: null
+
+# ---- IO ----
+save_every_n:    5
+verbose_errors:  true
+delay:           0.0

@@ -1,0 +1,28 @@
+# Step 2b: Assign question categories.
+# Input:  step 2 output (with_relevant_context.jsonl).
+# Output: same rows with an added `categories` field (list of category names).
+input_path: "/data/outputs/step2/with_relevant_context.jsonl"
+output_path: "/data/outputs/step2b/with_categories.jsonl"
+output_format: "jsonl"
+
+# Fields to read from each record
+sub_caption_field: "sub_caption"
+context_field: "relevant_image_context"
+modality_field: "primary_modality"
+image_path_field: "subfig_path"
+image_path_prefix: null
+
+# Whether to send the subfigure image alongside the text
+use_image: true
+
+model: "gpt-4o-mini"
+api_key_env: "OPENAI_API_KEY"
+temperature: 0.0
+
+# Uniform SLURM array split (load main file and slice by row range)
+split_by_row_range: true
+
+# Optional: limit rows or range (when not using SLURM array)
+# max_rows: 1000
+# from_row: null
+# to_row: null

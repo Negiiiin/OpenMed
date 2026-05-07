@@ -1,0 +1,43 @@
+# Step 4: Generate reasoning traces using OctoMed.
+# OctoMed is a medical multimodal model built on Qwen2.5-VL.
+# Model weights: https://huggingface.co/OctoMed/OctoMed-7B
+
+input_path:  /data/outputs/step3/generated_mcq.jsonl
+output_path: /data/outputs/step4/with_reasoning.jsonl
+
+# Model (loaded via vLLM)
+model_id: OctoMed/OctoMed-7B
+
+# Generation parameters
+temperature: 0.2
+top_p:       0.95
+max_new_tokens: 2048
+num_samples:    1          # candidates per MCQ; first correct prediction is kept
+
+# vLLM memory / throughput settings
+max_model_len:           16384
+min_pixels:              262144
+max_pixels:              262144
+tensor_parallel_size:    1
+gpu_memory_utilization:  0.90
+batch_size:              16
+
+# Prompt truncation – prevent "prompt too long" vLLM errors for very long contexts
+context_char_limit: 3500
+
+# Periodic checkpointing (every N completed input rows)
+checkpoint_every_n_rows: 50
+
+# --- Input field names ---
+full_fig_path_field:    full_fig_path
+subfig_path_field:      subfig_path
+image_context_field:    image_context
+relevant_context_field: relevant_image_context
+generated_mcq_field:    generated_mcq
+
+# --- Row-range slicing (optional) ---
+# Uncomment to process only a specific slice of the input.
+# split_by_row_range: true
+# from_row: 0
+# to_row: 1000
+# max_rows: null

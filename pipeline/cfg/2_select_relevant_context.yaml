@@ -1,0 +1,23 @@
+# Step 2: Select relevant image context and assign modality.
+# Input: step 1 filtered jsonl (single file or, when using SLURM array, filtered_task0.jsonl ... filtered_taskN.jsonl).
+input_path: "/data/outputs/step1/filtered.jsonl"
+output_path: "/data/outputs/step2/with_relevant_context.jsonl"
+output_format: "jsonl"
+
+sub_caption_field: "sub_caption"
+image_context_field: "image_context"
+image_path_field: "subfig_path"
+full_fig_path_field: "full_fig_path"
+image_path_prefix: null
+
+model: "gpt-4o-mini"
+api_key_env: "OPENAI_API_KEY"
+temperature: 0.0
+
+# Uniform array split: load main file and slice by row index (ignore *_taskN.jsonl).
+split_by_row_range: true
+
+# Optional: limit rows or range (when not using SLURM array)
+# max_rows: 1000
+# from_row: null
+# to_row: null
