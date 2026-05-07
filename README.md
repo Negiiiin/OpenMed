@@ -9,7 +9,7 @@ This repository contains the code for the BioReasonMed pipeline and training fra
 ```
 clean_release/
 ├── pipeline/               # Data curation pipeline (Steps 1 → 2 → 2b → 3 → 4 → 5 → 6 → 7)
-│   ├── 1_filter.py                      # Step 1:  Image quality, CLIP, and text quality filtering
+│   ├── 1_filter.py                      # Step 1:  Image quality and text quality filtering
 │   ├── 2_select_relevant_context.py     # Step 2:  Extract relevant context & assign modality
 │   ├── 2b_assign_question_categories.py # Step 2b: Assign clinical question categories
 │   ├── 3_generate_mcq.py                # Step 3:  Generate MCQs per category
@@ -65,11 +65,10 @@ clean_release/
 
 ### Step 1: Data Filtering (`pipeline/1_filter.py`)
 
-Applies three sequential filters to a medical image-text dataset:
+Applies two sequential filters to a medical image-text dataset:
 
 1. **Image quality filter** — removes images that are too small, have extreme aspect ratios, too much white border, or are blurry/low-resolution.
-2. **CLIP score filter** — uses [BIOMEDICA CLIP](https://huggingface.co/BIOMEDICA/BMC_CLIP_CF) to keep only image-caption pairs with high semantic alignment.
-3. **Context quality filter** — uses a local LLM (e.g. Qwen3-8B via vLLM) to keep only entries whose text contains sufficient reasoning signals for VQA.
+2. **Context quality filter** — uses a local LLM (e.g. Qwen3-8B via vLLM) to keep only entries whose text contains sufficient reasoning signals for VQA.
 
 **Configuration:** `pipeline/cfg/1_filter.yaml`
 
@@ -302,12 +301,11 @@ with three independent judges, one per reasoning layer.
    - **Perception judge** (VLM, sees the image) — scores `observation` units.
    - **Knowledge judge** (text LLM) — scores `knowledge` units.
    - **Reasoning judge** (text LLM) — scores `inference` units.
-4. Per unit, each judge returns three axes:
+4. Per unit, each judge returns two axes:
    - `presence` ∈ {0, 1, 2} — absent / partial / clearly asserted.
    - `correctness` ∈ {-1, 0, 1} — wrong / N/A / correct.
-   - `consistency` ∈ {-1, 0, 1} — contradiction / N/A / consistent.
 5. Tags each unit deterministically with a failure mode:
-   `omission`, `factual_error`, `internal_inconsistency`, `chain_break`,
+   `omission`, `factual_error`, `chain_break`,
    `option_elimination`, `judge_error`, or `ok`.
 6. Aggregates per-run and corpus-level metrics and writes a summary JSON.
 
@@ -332,7 +330,7 @@ with three independent judges, one per reasoning layer.
 | `judge_knowledge` | list | per-unit knowledge scores |
 | `judge_reasoning` | list | per-unit reasoning scores |
 | `chain_grounding` | list | deterministic premise grounding per reasoning unit |
-| `per_layer_metrics` | dict | presence_mean, correctness_rate, consistency_rate |
+| `per_layer_metrics` | dict | presence_mean, correctness_rate |
 | `failure_mode_histogram` | dict | failure tag counts per layer |
 
 **Run:**
@@ -359,7 +357,6 @@ transformers
 trl
 peft
 deepspeed
-open_clip_torch
 opencv-python
 Pillow
 pandas

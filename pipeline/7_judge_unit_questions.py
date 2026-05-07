@@ -15,12 +15,11 @@ script:
        Perception judge -- VLM (sees the image); scores observation units.
        Knowledge judge  -- text LLM; scores knowledge units.
        Reasoning judge  -- text LLM; scores inference units.
-     Each judge returns three numeric axes per unit:
+     Each judge returns two numeric axes per unit:
        presence    in {0, 1, 2}   (0=absent, 1=partial, 2=clearly asserted)
        correctness in {-1, 0, 1}  (-1=wrong, 0=N/A, 1=correct)
-       consistency in {-1, 0, 1}  (-1=contradiction, 0=N/A, 1=consistent)
   3. Tags each unit with a deterministic failure mode:
-       omission / factual_error / internal_inconsistency / chain_break /
+       omission / factual_error / chain_break /
        option_elimination / judge_error / ok
 
 Inference backends:
@@ -619,13 +618,13 @@ def _pr(u: Dict) -> Dict:
                                    "presence_question", "correctness_question")}
 
 def _ep(uid: str, reason: str) -> Dict:
-    return dict(claim_id=uid, presence=0, correctness=0, consistency=0, evidence="", judge_error=reason)
+    return dict(claim_id=uid, presence=0, correctness=0, evidence="", judge_error=reason)
 
 def _ek(uid: str, reason: str) -> Dict:
-    return dict(knowledge_id=uid, presence=0, correctness=0, consistency=0, evidence="", judge_error=reason)
+    return dict(knowledge_id=uid, presence=0, correctness=0, evidence="", judge_error=reason)
 
 def _er(uid: str, reason: str) -> Dict:
-    return dict(reasoning_id=uid, presence=0, correctness=0, consistency=0,
+    return dict(reasoning_id=uid, presence=0, correctness=0,
                 chain_grounding_judge=dict(perception_premise_present=None,
                                            knowledge_premise_present=None,
                                            premises_correct=None),
@@ -675,7 +674,6 @@ def judge_perception(client: Any, *, cfg: Config, image_path: str,
             out.append(dict(claim_id=uid,
                             presence    =_ax(it.get("presence"),    ok=(0,1,2),   default=0),
                             correctness =_ax(it.get("correctness"), ok=(-1,0,1),  default=0),
-                            consistency =_ax(it.get("consistency"), ok=(-1,0,1),  default=0),
                             evidence    =str(it.get("evidence") or "").strip()))
     return out
 
@@ -712,7 +710,6 @@ def judge_knowledge(client: Any, *, cfg: Config,
             out.append(dict(knowledge_id=uid,
                             presence    =_ax(it.get("presence"),    ok=(0,1,2),   default=0),
                             correctness =_ax(it.get("correctness"), ok=(-1,0,1),  default=0),
-                            consistency =_ax(it.get("consistency"), ok=(-1,0,1),  default=0),
                             evidence    =str(it.get("evidence") or "").strip()))
     return out
 
@@ -760,7 +757,6 @@ def judge_reasoning(client: Any, *, cfg: Config,
                 reasoning_id=uid,
                 presence    =_ax(it.get("presence"),    ok=(0,1,2),   default=0),
                 correctness =_ax(it.get("correctness"), ok=(-1,0,1),  default=0),
-                consistency =_ax(it.get("consistency"), ok=(-1,0,1),  default=0),
                 chain_grounding_judge=dict(
                     perception_premise_present=_b(cg.get("perception_premise_present")),
                     knowledge_premise_present =_b(cg.get("knowledge_premise_present")),
@@ -805,19 +801,17 @@ def chain_grounding(*, r_unit: Dict, p_by_id: Dict, k_by_id: Dict) -> Dict[str, 
 
 def _tag_pk(it: Dict) -> str:
     if "judge_error" in it: return "judge_error"
-    p, c, s = int(it.get("presence") or 0), int(it.get("correctness") or 0), int(it.get("consistency") or 0)
+    p, c = int(it.get("presence") or 0), int(it.get("correctness") or 0)
     if p == 0:  return "omission"
     if c == -1: return "factual_error"
-    if s == -1: return "internal_inconsistency"
     return "ok"
 
 
 def _tag_r(it: Dict, *, cg: Dict, option_heavy: bool) -> str:
     if "judge_error" in it: return "judge_error"
-    p, c, s = int(it.get("presence") or 0), int(it.get("correctness") or 0), int(it.get("consistency") or 0)
+    p, c = int(it.get("presence") or 0), int(it.get("correctness") or 0)
     if p == 0:  return "omission"
     if c == -1: return "option_elimination" if option_heavy else "factual_error"
-    if s == -1: return "internal_inconsistency"
     if cg and cg.get("grounded") is False: return "chain_break"
     return "ok"
 
@@ -836,7 +830,6 @@ def _layer_metrics(items: List[Dict]) -> Dict[str, Any]:
     return {
         "presence_mean":    _mean([int(i.get("presence") or 0) / 2.0 for i in valid]),
         "correctness_rate": _mean([1.0 if int(i.get("correctness") or 0) == 1 else 0.0 for i in present]),
-        "consistency_rate": _mean([1.0 if int(i.get("consistency") or 0) == 1 else 0.0 for i in present]),
         "n_items":   len(items),
         "n_present": len(present),
     }
@@ -913,8 +906,7 @@ def print_summary(summary_path: str, output_path: str) -> None:
         m   = means.get(layer) or {}
         fmt = lambda v: f"{float(v)*100:6.2f}%" if v is not None else "   n/a"
         print(f"  {layer:11s}  presence={fmt(m.get('presence_mean'))}  "
-              f"correctness={fmt(m.get('correctness_rate'))}  "
-              f"consistency={fmt(m.get('consistency_rate'))}")
+              f"correctness={fmt(m.get('correctness_rate'))}")
     gr = s.get("corpus_reasoning_grounded_rate")
     if gr is not None:
         print(f"\n  reasoning_grounded_rate = {float(gr)*100:6.2f}%")
@@ -1005,7 +997,7 @@ def main() -> None:
         "perception": defaultdict(int), "knowledge": defaultdict(int), "reasoning": defaultdict(int),
     }
     corpus_sums: Dict[str, Dict[str, List[float]]] = {
-        layer: {"presence_mean": [], "correctness_rate": [], "consistency_rate": []}
+        layer: {"presence_mean": [], "correctness_rate": []}
         for layer in ("perception", "knowledge", "reasoning")
     }
     corpus_chain: List[float] = []
@@ -1129,7 +1121,7 @@ def main() -> None:
                         corpus_fail[it["failure_mode"]] += 1
                         corpus_layer_fail[layer][it["failure_mode"]] += 1
                     pl = per_layer[layer]
-                    for ak in ("presence_mean", "correctness_rate", "consistency_rate"):
+                    for ak in ("presence_mean", "correctness_rate"):
                         v = pl.get(ak)
                         if v is not None:
                             corpus_sums[layer][ak].append(float(v))

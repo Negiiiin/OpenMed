@@ -29,13 +29,6 @@ image_quality:
   min_sharpness: 60.0
   min_effective_resolution: 224
 
-clip_filtering:
-  enabled: true
-  threshold: 0.6
-  device: "cuda"
-  batch_size: 32
-  alpha: 0.0
-
 context_quality:
   enabled: true
   model_path: "/model-weights/Qwen3-8B/"  # path to a local Qwen3 model

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Stage 1: Data Filtering Pipeline
-Applies image quality, CLIP, and text quality filters to the dataset.
+Applies image quality and text quality filters to the dataset.
 """
 
 import multiprocessing
@@ -23,12 +23,9 @@ import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
 import torch  # type: ignore
 import yaml
-from huggingface_hub import hf_hub_download  # type: ignore
 from PIL import Image  # type: ignore
 from transformers import AutoModelForCausalLM, AutoTokenizer  # type: ignore
 from tqdm import tqdm  # type: ignore
-
-import open_clip  # type: ignore
 
 
 # ==========================================
@@ -52,7 +49,6 @@ class FilteringConfig:
     context_source: str = "summary"
     extract_all_image_context: bool = True  # If False, extract only for the related image figure_id
     image_quality: Dict[str, Any] = field(default_factory=dict)
-    clip_filtering: Dict[str, Any] = field(default_factory=dict)
     context_quality: Dict[str, Any] = field(default_factory=dict)
     output_format: str = "jsonl"
     save_intermediate: bool = False
@@ -93,7 +89,6 @@ def load_filtering_config(raw: Dict[str, Any]) -> FilteringConfig:
         context_source=raw.get("context_source", "summary"),
         extract_all_image_context=raw.get("extract_all_image_context", True),
         image_quality=raw.get("image_quality", {}),
-        clip_filtering=raw.get("clip_filtering", {}),
         context_quality=raw.get("context_quality", {}),
         output_format=raw.get("output_format", "jsonl").lower(),
         save_intermediate=raw.get("save_intermediate", False),
@@ -356,28 +351,8 @@ def stage1_image_quality_filter(df: pd.DataFrame, cfg: FilteringConfig, base_dir
 
 
 # ==========================================
-#  STAGE 2: CLIP SCORE FILTER
+#  STAGE 2: CONTEXT QUALITY FILTER
 # ==========================================
-
-def load_clip_model(device: str, alpha: float):
-    """Load BIOMEDICA CLIP weights."""
-    model_path = hf_hub_download("BIOMEDICA/BMC_CLIP_CF", filename="BMC_CLIP_CF.pt")
-    checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
-    state_dict = checkpoint["state_dict"]
-    del checkpoint
-    model_name = "ViT-L-14"
-    model, _, preprocess = open_clip.create_model_and_transforms(model_name=model_name, pretrained="commonpool_xl_clip_s13b_b90k")
-    tokenizer = open_clip.get_tokenizer(model_name)
-    merged_state = {}
-    base_state = model.state_dict()
-    for key in base_state.keys():
-        merged_state[key] = alpha * base_state[key] + (1 - alpha) * state_dict[f"module.{key}"]
-    model.load_state_dict(merged_state)
-    device_str = device if torch.cuda.is_available() and device == "cuda" else "cpu"
-    model = model.to(device_str)
-    model.eval()
-    return model, preprocess, tokenizer, device_str
-
 
 def extract_figure_id_from_path(path: str, available_keys: Optional[List[str]] = None) -> Optional[str]:
     """
@@ -465,106 +440,6 @@ def extract_image_context_text(image_context: Any, figure_id: Optional[str] = No
     return str(image_context).strip()
 
 
-def combine_text_for_clip(row: pd.Series, cfg: FilteringConfig) -> str:
-    sub_caption = str(row.get(cfg.columns["sub_caption"], "")).strip()
-    if cfg.context_source == "summary":
-        context = str(row.get(cfg.columns["summary"], "")).strip()
-    else:
-        image_context_raw = row.get(cfg.columns["image_context"])
-        # Extract figure ID from path if we want only the related image
-        figure_id = None
-        if not cfg.extract_all_image_context:
-            # Try to get path from various possible column names
-            path = None
-            for path_col in ["full_fig_path", "subfig_path", cfg.columns.get("image_path", "image_path")]:
-                if path_col in row:
-                    path = str(row.get(path_col, ""))
-                    if path:
-                        break
-            if path:
-                # Get available keys from image_context if it's a dict
-                available_keys = None
-                if isinstance(image_context_raw, dict):
-                    available_keys = list(image_context_raw.keys())
-                figure_id = extract_figure_id_from_path(path, available_keys=available_keys)
-        context = extract_image_context_text(
-            image_context_raw, 
-            figure_id=figure_id, 
-            extract_all=cfg.extract_all_image_context
-        )
-    return " ".join([part for part in (sub_caption, context) if part])
-
-
-def compute_clip_scores(image_paths: List[str], texts: List[str], model, preprocess, tokenizer, device: str, batch_size: int) -> List[float]:
-    scores: List[float] = []
-    num_batches = (len(image_paths) + batch_size - 1) // batch_size
-    for start in tqdm(range(0, len(image_paths), batch_size), total=num_batches, desc="  Computing CLIP scores"):
-        batch_images = image_paths[start : start + batch_size]
-        batch_texts = texts[start : start + batch_size]
-        tensors = []
-        for path in batch_images:
-            try:
-                img = Image.open(path).convert("RGB")
-            except Exception:
-                img = Image.new("RGB", (224, 224), "black")
-            tensors.append(preprocess(img).unsqueeze(0))
-        image_batch = torch.cat(tensors, dim=0)
-        text_tokens = tokenizer(batch_texts)
-        if device == "cuda" and torch.cuda.is_available():
-            image_batch = image_batch.to(device)
-            text_tokens = text_tokens.to(device)
-        with torch.no_grad():
-            image_feat = model.encode_image(image_batch)
-            text_feat = model.encode_text(text_tokens)
-            image_feat = image_feat / image_feat.norm(dim=-1, keepdim=True)
-            text_feat = text_feat / text_feat.norm(dim=-1, keepdim=True)
-            sims = torch.diag(image_feat @ text_feat.T).cpu().numpy()
-        scores.extend(((sims + 1) / 2).tolist())
-    return scores
-
-
-def stage2_clip_score_filter(df: pd.DataFrame, cfg: FilteringConfig, base_dir: Optional[str]) -> pd.DataFrame:
-    clip_cfg = cfg.clip_filtering or {}
-    if not clip_cfg.get("enabled", True):
-        print("Stage 2 (CLIP): disabled, skipping.")
-        return df
-
-    print(f"\n--- Stage 2: CLIP Score Filtering ---")
-    threshold = clip_cfg.get("threshold", 0.25)
-    device = clip_cfg.get("device", "cuda")
-    batch_size = clip_cfg.get("batch_size", 32)
-    alpha = clip_cfg.get("alpha", 0.0)
-    
-    model, preprocess, tokenizer, device_str = load_clip_model(device, alpha)
-    image_col = cfg.columns["image_path"]
-    
-    resolved_paths: List[str] = []
-    texts: List[str] = []
-    valid_idx: List[int] = []
-    for idx, row in tqdm(df.iterrows(), total=len(df), desc="  Resolving paths"):
-        resolved = resolve_image_path(str(row[image_col]), base_dir)
-        text = combine_text_for_clip(row, cfg)
-        if not resolved or not os.path.exists(resolved) or not text.strip():
-            continue
-        resolved_paths.append(resolved)
-        texts.append(text)
-        valid_idx.append(idx)
-
-    if not resolved_paths:
-        return df
-
-    scores = compute_clip_scores(resolved_paths, texts, model, preprocess, tokenizer, device_str, batch_size)
-    score_map = {valid_idx[i]: scores[i] for i in range(len(valid_idx))}
-    keep_mask = [score_map.get(idx, 0.0) >= threshold for idx in df.index]
-    filtered = df[keep_mask].reset_index(drop=True)
-    print(f"  ✓ Removed {len(df) - len(filtered)} rows, {len(filtered)} rows remaining.")
-    return filtered
-
-
-# ==========================================
-#  STAGE 3: CONTEXT QUALITY FILTER
-# ==========================================
-
 def load_qwen_model(model_path: str, device: str, use_vllm: bool = False):
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
     if use_vllm:
@@ -634,13 +509,13 @@ def generate_batch_with_qwen(model, tokenizer, system_prompt: str, user_prompts:
         results.append(result)
     return results
 
-def stage3_context_quality_filter(df: pd.DataFrame, cfg: FilteringConfig, reject_path: Optional[str] = None) -> pd.DataFrame:
+def stage2_context_quality_filter(df: pd.DataFrame, cfg: FilteringConfig, reject_path: Optional[str] = None) -> pd.DataFrame:
     ctx_cfg = cfg.context_quality or {}
     if not ctx_cfg.get("enabled", True):
-        print("Stage 3 (context quality): disabled, skipping.")
+        print("Stage 2 (context quality): disabled, skipping.")
         return df
 
-    print(f"\n--- Stage 3: Context Quality Filtering ---")
+    print(f"\n--- Stage 2: Context Quality Filtering ---")
     min_length = ctx_cfg.get("min_length", 50)
     model_path = ctx_cfg.get("model_path")
     if not model_path:
@@ -778,7 +653,7 @@ def stage3_context_quality_filter(df: pd.DataFrame, cfg: FilteringConfig, reject
                         rec[image_context_col] = extract_image_context_text(
                             image_context_raw, figure_id=figure_id, extract_all=False
                         )
-                    rec["_filter_stage"] = "stage3_text_quality"
+                    rec["_filter_stage"] = "stage2_text_quality"
                     rec["_qwen_response"] = responses[i]
                     rejected_batch.append(rec)
             if rejected_batch:
@@ -894,14 +769,9 @@ def run_filtering_pipeline(cfg: FilteringConfig) -> pd.DataFrame:
     _save_rejects(df_before[~df_before.index.isin(df.index)], "stage1_image_quality")
 
     if not df.empty:
-        df_before = df.copy()
-        df = stage2_clip_score_filter(df, cfg, base_dir)
-        _save_rejects(df_before[~df_before.index.isin(df.index)], "stage2_clip")
-
-    if not df.empty:
         base, ext = os.path.splitext(cfg.output_path)
-        stage3_reject_path = f"{base}_rejected_stage3_text_quality{ext}"
-        df = stage3_context_quality_filter(df, cfg, reject_path=stage3_reject_path)
+        stage2_reject_path = f"{base}_rejected_stage2_text_quality{ext}"
+        df = stage2_context_quality_filter(df, cfg, reject_path=stage2_reject_path)
     
     # Extract and save only the related image context before saving
     if not df.empty and cfg.columns.get("image_context") in df.columns:
